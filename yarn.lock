@@ -3537,7 +3537,7 @@ expo-constants@~14.0.0:
     "@expo/config" "~7.0.2"
     uuid "^3.3.2"
 
-expo-file-system@~15.1.0:
+expo-file-system@^15.1.1, expo-file-system@~15.1.0:
   version "15.1.1"
   resolved "https://registry.yarnpkg.com/expo-file-system/-/expo-file-system-15.1.1.tgz#724090f83ff1e6378cadc0a64b83552f769eb16b"
   integrity sha512-MYYDKxjLo9VOkvGHqym5EOAUS+ero9O66X5zI+EXJzqNznKvnfScdXeeAaQzShmWtmLkdVDCoYFGOaTvTA1wTQ==

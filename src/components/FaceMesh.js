@@ -1,4 +1,5 @@
 import React, {Fragment, Component} from 'react';
+import RNFS from 'react-native-fs';
 import {
   SafeAreaView,
   StyleSheet,
@@ -12,18 +13,20 @@ import {
 
 
 // import react-native-image-picker
-import ImagePicker from 'react-native-image-picker';
+import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import * as tf from '@tensorflow/tfjs';
-import { fetch, decodeJpeg, bundleResourceIO } from '@tensorflow/tfjs-react-native';
+import { fetch, bundleResourceIO } from '@tensorflow/tfjs-react-native';
 import { useEffect } from 'react';
 import { useState } from 'react';
+import * as base64 from 'base64-js'
+import * as FileSystem from 'expo-file-system';
 
 
 const FaceMesh = () => {
 
   const [image, setImage] = useState(null);
   const [model, setModel] = useState(null);
-  const [predictions, setPredictions] = useState(null);
+  const [result, setResult] = useState(null);
   const [fileUri, setFileUri] = useState(null);
 
   useEffect(() => {
@@ -48,48 +51,99 @@ const FaceMesh = () => {
     }
   }, [])
 
-  const predict = async () => {
+  const performClassification = async () => {
     try {
-      const imageAssetPath = Image.resolveAssetSource(image);
-      const response = await fetch(imageAssetPath.uri, {}, { isBinary: true });
-      const rawImageData = await response.arrayBuffer();
-      const imageTensor = decodeJpeg(rawImageData);
-      const predictions = await model.predict(imageTensor);
-      console.log(predictions);
-      setPredictions(predictions);
+      console.log('performing classification');
+      console.log('fileUri', fileUri);
+      if (!fileUri) {
+        console.log("fileUri is null or undefined");
+        return;
+      }
+      let uri = '';
+      if (typeof fileUri === 'string') {
+        if(fileUri.startsWith('file://')){
+          uri = fileUri.slice(7);
+        }else {
+          uri = fileUri;
+        }
+      } else {
+        uri = fileUri.uri;
+      }
+      const imgB64 = await FileSystem.readAsStringAsync(fileUri, {
+          encoding: FileSystem.EncodingType.Base64,
+      });
+      const imgBuffer = tf.util.encodeString(imgB64, 'base64').buffer;
+      const raw = new Uint8Array(imgBuffer)  
+      const imageTensor = decodeJpeg(raw);
+      console.log('imageTensor');
+      // conver image in image of cropped face with 25% margin on each side and size 192x192 px to predict
+      const croppedImage = tf.image.resizeBilinear(imageTensor, [192, 192]);
+      console.log('croppedImage');
+      const croppedImageWithMargin = tf.image.resizeBilinear(croppedImage, [224, 224]);
+      console.log('croppedImageWithMargin');
+      const normalizedImage = croppedImageWithMargin.div(255.0);
+      const reshapedImage = normalizedImage.reshape([1, 224, 224, 3]);
+      const prediction = await model.predict(reshapedImage);
+      const predictionArray = prediction.arraySync()[0];
+      console.log('predictionArray', predictionArray);
+      setResult(predictionArray);
+
+
     } catch (error) {
       console.log(error);
     }
   }
 
 
-  // create a function to take image from camera
-  const cameraLaunch = () => {
+  const chooseImage = () => {
+    let options = {
+      title: 'Select Image',
+      storageOptions: {
+        skipBackup: true,
+        path: 'images',
+      },
+    };
+
+    launchImageLibrary(options, response => {
+      console.log('Response = ', response);
+      if (response.didCancel) {
+        console.log('User cancelled image picker');
+      } else if(response.assets && response.assets[0] && response.assets[0].uri) {
+        console.log('response', JSON.stringify(response));
+        setFileUri(
+          response.assets[0].uri,
+        );
+        performClassification();
+      } else {
+          console.log('Error: Invalid image data');
+      }
+    });
+  };
+
+  
+
+  // create launchCamera function with image picker
+
+  const launchCamerapress = () => {
     let options = {
       storageOptions: {
         skipBackup: true,
         path: 'images',
       },
     };
-    ImagePicker.launchCamera(options, (response) => {
+    launchCamera(options, response => {
       console.log('Response = ', response);
       if (response.didCancel) {
         console.log('User cancelled image picker');
-      } else if (response.error) {
-        console.log('ImagePicker Error: ', response.error);
-      } else if (response.customButton) {
-        console.log('User tapped custom button: ', response.customButton);
-        alert(response.customButton);
       } else {
-        const source = { uri: response.uri };
-        console.log(source);
-        setImage(source);
-
-        // predict();
-
+        console.log('response', JSON.stringify(response));
+        setFileUri(response.assets[0].uri);
+        //this.performClassification();
       }
     });
   };
+
+
 
   const renderFileUri= () =>{
     if (fileUri) {
@@ -156,24 +210,36 @@ const FaceMesh = () => {
 
   return (
     <Fragment>
-      <StatusBar barStyle="dark-content" />
-      <SafeAreaView>
-        <View style={styles.body}>
-          <View style={styles.ImageSections}>
-            {renderFileUri()}
-
-          </View>
-          <View style={styles.btnParentSection}>
-            <TouchableOpacity
-
-              style={styles.btnSection}
-              onPress={cameraLaunch}>
-              <Text style={styles.btnText}>Launch Camera</Text>
-            </TouchableOpacity>
-          </View>
+    <StatusBar barStyle="dark-content" />
+    <SafeAreaView>
+      <View style={styles.body}>
+        <Text
+          style={{textAlign: 'center', fontSize: 20, paddingBottom: 10}}>
+          Pick Images from Camera & Gallery
+        </Text>
+        <View style={styles.ImageSections}>
+          <View>{renderFileUri()}</View>
+        
         </View>
-      </SafeAreaView>
-    </Fragment>
+        <Text style={{textAlign:'center'}}>{result}</Text>
+        <View style={styles.btnParentSection}>
+          <TouchableOpacity
+            onPress={chooseImage}
+            style={styles.btnSection}>
+            <Text style={styles.btnText}>Choose File</Text>
+          </TouchableOpacity>
+          
+
+          <TouchableOpacity
+            onPress={launchCamerapress}
+            style={styles.btnSection}>
+            <Text style={styles.btnText}>Directly Launch Camera</Text>
+          </TouchableOpacity>
+
+        </View>
+      </View>
+    </SafeAreaView>
+  </Fragment>
 
   )
   
